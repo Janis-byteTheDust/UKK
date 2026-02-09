@@ -209,7 +209,7 @@ class ApiService {
   static Future<Map<String, dynamic>> tambahMenu({
     required String token,
     required String namaMakanan,
-    required String jenis, // "makanan" atau "minuman"
+    required String jenis,
     required int harga,
     required String deskripsi,
     File? foto,
@@ -219,75 +219,43 @@ class ApiService {
       print('Token: ${token.substring(0, 20)}...');
       print('Data: nama_makanan=$namaMakanan, jenis=$jenis, harga=$harga');
       
-      // Cek apakah ada foto (untuk web, foto akan null)
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/tambahmenu'),
+      );
+
+      request.headers['Authorization'] = 'Bearer $token';
+      request.headers['makerID'] = '1';
+
+      request.fields['nama_makanan'] = namaMakanan;
+      request.fields['jenis'] = jenis;
+      request.fields['harga'] = harga.toString();
+      request.fields['deskripsi'] = deskripsi;
+
+      print('📤 Fields: ${request.fields}');
+
       if (foto != null) {
-        // Pakai MultipartRequest (untuk mobile)
-        var request = http.MultipartRequest(
-          'POST',
-          Uri.parse('$baseUrl/tambahmenu'),
-        );
-
-        request.headers['Authorization'] = 'Bearer $token';
-        request.headers['makerID'] = '1';
-
-        request.fields['nama_makanan'] = namaMakanan;
-        request.fields['jenis'] = jenis;
-        request.fields['harga'] = harga.toString();
-        request.fields['deskripsi'] = deskripsi;
-
-        print('📤 Fields: ${request.fields}');
         print('📷 Adding foto: ${foto.path}');
-        
         request.files.add(
           await http.MultipartFile.fromPath('foto', foto.path),
         );
-
-        var streamedResponse = await request.send();
-        var response = await http.Response.fromStream(streamedResponse);
-
-        print('📡 Status Code: ${response.statusCode}');
-        print('📦 Response Body: ${response.body}');
-
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          return jsonDecode(response.body);
-        } else {
-          return {
-            'success': false,
-            'message': 'Server error ${response.statusCode}: ${response.body}',
-          };
-        }
       } else {
-        // Tanpa foto (untuk web atau jika tidak upload foto)
-        var request = http.MultipartRequest(
-          'POST',
-          Uri.parse('$baseUrl/tambahmenu'),
-        );
-
-        request.headers['Authorization'] = 'Bearer $token';
-        request.headers['makerID'] = '1';
-
-        request.fields['nama_makanan'] = namaMakanan;
-        request.fields['jenis'] = jenis;
-        request.fields['harga'] = harga.toString();
-        request.fields['deskripsi'] = deskripsi;
-
-        print('📤 Fields: ${request.fields}');
         print('⚠️ No foto uploaded');
+      }
 
-        var streamedResponse = await request.send();
-        var response = await http.Response.fromStream(streamedResponse);
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
 
-        print('📡 Status Code: ${response.statusCode}');
-        print('📦 Response Body: ${response.body}');
+      print('📡 Status Code: ${response.statusCode}');
+      print('📦 Response Body: ${response.body}');
 
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          return jsonDecode(response.body);
-        } else {
-          return {
-            'success': false,
-            'message': 'Server error ${response.statusCode}: ${response.body}',
-          };
-        }
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return jsonDecode(response.body);
+      } else {
+        return {
+          'success': false,
+          'message': 'Server error ${response.statusCode}: ${response.body}',
+        };
       }
     } catch (e) {
       print('❌ Error: $e');
@@ -311,7 +279,7 @@ class ApiService {
           print('Token present');
         }
       } else {
-        print('No token provided; calling showmenu without Authorization');
+        print('No token provided');
       }
       
       final headers = {
@@ -358,6 +326,48 @@ class ApiService {
   }
 
   // ==================== MENU SISWA ENDPOINTS ====================
+
+  // Get All Stan (untuk Siswa) - POST /get_all_stan
+  static Future<Map<String, dynamic>> getAllStan({
+    String search = '',
+  }) async {
+    try {
+      print('🔵 Calling get_all_stan API...');
+      print('Search: "$search"');
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/get_all_stan'),
+        headers: {
+          'makerID': '1',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: {
+          'search': search,
+        },
+      );
+
+      print('📡 Status Code: ${response.statusCode}');
+      print('📦 Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data;
+      } else {
+        return {
+          'success': false,
+          'message': 'Server error: ${response.statusCode}',
+          'data': [],
+        };
+      }
+    } catch (e) {
+      print('❌ Error: $e');
+      return {
+        'success': false,
+        'message': 'Terjadi kesalahan: $e',
+        'data': [],
+      };
+    }
+  }
 
   // Get Menu Food (untuk Siswa) - POST /getmenufood
   static Future<Map<String, dynamic>> getMenuFood({
@@ -461,100 +471,58 @@ class ApiService {
     }
   }
 
-  // Get Menu/Pesan - GET /pesan (DEPRECATED - gunakan showMenu)
-  static Future<Map<String, dynamic>> getPesan({
-    required String token,
-  }) async {
-    // Redirect ke showMenu
-    return showMenu(token: token);
-  }
-
-  // Get Menu untuk Admin (alternative endpoint jika ada)
-  static Future<Map<String, dynamic>> getMenuAdmin({
-    required String token,
-  }) async {
-    try {
-      print('🔵 Calling menu admin API...');
-      print('Token: ${token.substring(0, 20)}...');
-      
-      // Coba beberapa kemungkinan endpoint
-      final endpoints = ['menu', 'admin/menu', 'stan/menu', 'getmenu'];
-      
-      for (var endpoint in endpoints) {
-        print('🔄 Trying endpoint: $endpoint');
-        
-        final response = await http.get(
-          Uri.parse('$baseUrl/$endpoint'),
-          headers: {
-            'Authorization': 'Bearer $token',
-            'makerID': '1',
-            'Accept': 'application/json',
-          },
-        );
-
-        print('📡 Status Code: ${response.statusCode} for $endpoint');
-
-        if (response.statusCode == 200) {
-          print('✅ Success with endpoint: $endpoint');
-          print('📦 Response Body: ${response.body}');
-          return jsonDecode(response.body);
-        }
-      }
-
-      // Kalau semua gagal
-      return {
-        'success': false,
-        'message': 'Tidak ada endpoint yang valid',
-        'data': [],
-      };
-    } catch (e) {
-      print('❌ Error: $e');
-      return {
-        'success': false,
-        'message': 'Terjadi kesalahan: $e',
-        'data': [],
-      };
-    }
-  }
-
   // ==================== ORDER ENDPOINTS ====================
 
-  // Create Order / Checkout - GET pesan dengan JSON body
+  // Create Order / Checkout - POST pesan
+  // GANTI METHOD createOrder di lib/services/api_service.dart
+// Cari bagian // Create Order / Checkout dan ganti dengan ini:
+
+  // Create Order / Checkout - GET pesan
   static Future<Map<String, dynamic>> createOrder({
     required String token,
     required int idStan,
-    required List<Map<String, dynamic>> pesan, // [{id_menu: 3, qty: 1}]
+    required List<Map<String, dynamic>> pesan,
   }) async {
     try {
       print('🔵 Calling pesan (create order) API...');
       print('Token: ${token.substring(0, 20)}...');
       print('ID Stan: $idStan');
-      print('Pesan: $pesan');
+      print('Pesan (from cart): $pesan');
       
-      // Build request body sebagai JSON
-      final requestBody = {
+      // Format data - hanya id_menu dan qty
+      final pesanCleaned = pesan.map((item) {
+        return {
+          'id_menu': item['id_menu'],
+          'qty': item['qty'],
+        };
+      }).toList();
+      
+      print('Pesan (cleaned): $pesanCleaned');
+      
+      // Build request data
+      final requestData = {
         'id_stan': idStan,
-        'pesan': pesan,
+        'pesan': pesanCleaned,
       };
       
-      final jsonBody = jsonEncode(requestBody);
-      print('📤 Request Body (JSON): $jsonBody');
+      // Encode JSON
+      final jsonString = jsonEncode(requestData);
+      print('📤 Request JSON: $jsonString');
       
-      // GET request dengan JSON body menggunakan Request object
-      // Karena http.get() tidak support body, kita buat custom request
-      final request = http.Request('GET', Uri.parse('$baseUrl/pesan'));
+      // PERBAIKAN: Gunakan GET dengan query parameter seperti dokumentasi
+      final encodedData = Uri.encodeComponent(jsonString);
+      final url = '$baseUrl/pesan?data=$encodedData';
       
-      request.headers.addAll({
-        'Authorization': 'Bearer $token',
-        'makerID': '1',
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      });
+      print('📡 Calling URL (GET): ${url.length > 150 ? url.substring(0, 150) + '...' : url}');
       
-      request.body = jsonBody;
-      
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'makerID': '1',
+          'Accept': 'application/json',
+        },
+      );
 
       print('📡 Status Code: ${response.statusCode}');
       print('📦 Response Body: ${response.body}');
@@ -562,7 +530,17 @@ class ApiService {
       if (response.statusCode == 200 || response.statusCode == 201) {
         try {
           final data = jsonDecode(response.body);
-          return data;
+          if (data['success'] == true || 
+              data['status'] == 'success' ||
+              data['message']?.toString().toLowerCase().contains('berhasil') == true) {
+            return {
+              'success': true,
+              'message': data['message'] ?? 'Pesanan berhasil dibuat',
+              'data': data['data'],
+            };
+          } else {
+            return data;
+          }
         } catch (e) {
           print('⚠️ Response is not JSON: ${response.body}');
           return {
@@ -578,15 +556,30 @@ class ApiService {
       } else if (response.statusCode == 400) {
         try {
           final errorData = jsonDecode(response.body);
-          print('❌ Validation Error: $errorData');
+          print('⚠️ Error 400 Data: $errorData');
+          
+          String errorMessage = 'Validasi gagal';
+          if (errorData is Map) {
+            if (errorData['message'] != null) {
+              errorMessage = errorData['message'].toString();
+            } else if (errorData['errors'] != null) {
+              final errors = errorData['errors'];
+              if (errors is Map) {
+                errorMessage = errors.values
+                    .map((e) => e is List ? e.join(', ') : e.toString())
+                    .join('; ');
+              }
+            }
+          }
+          
           return {
             'success': false,
-            'message': 'Validasi gagal: ${errorData.toString()}',
+            'message': errorMessage,
           };
         } catch (e) {
           return {
             'success': false,
-            'message': 'Server error 400: ${response.body}',
+            'message': 'Validasi gagal: ${response.body}',
           };
         }
       } else {
@@ -608,10 +601,10 @@ class ApiService {
   // Get Order by Status (untuk Admin Stan) - GET getorder/{status}
   static Future<Map<String, dynamic>> getOrderByStatus({
     required String token,
-    required String status, // dimasak, diantar, sampai, belum dikonfirm
+    required String status,
   }) async {
     try {
-      print('🔵 Calling getorder/$status API...');
+      print('🔵 Calling getorder/$status API (Admin)...');
       print('Token: ${token.substring(0, 20)}...');
       print('Status: $status');
       
@@ -653,11 +646,59 @@ class ApiService {
     }
   }
 
+  // Show Order (untuk Siswa) - GET showorder/{status}
+  static Future<Map<String, dynamic>> showOrder({
+    required String token,
+    required String status,
+  }) async {
+    try {
+      print('🔵 Calling showorder/$status API (Siswa)...');
+      print('Token: ${token.substring(0, 20)}...');
+      print('Status: $status');
+      
+      final response = await http.get(
+        Uri.parse('$baseUrl/showorder/$status'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'makerID': '1',
+          'Accept': 'application/json',
+        },
+      );
+
+      print('📡 Status Code: ${response.statusCode}');
+      print('📦 Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data;
+      } else if (response.statusCode == 401) {
+        return {
+          'success': false,
+          'message': 'Token tidak valid atau expired. Silakan login ulang.',
+          'data': [],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': 'Server error: ${response.statusCode}',
+          'data': [],
+        };
+      }
+    } catch (e) {
+      print('❌ Error: $e');
+      return {
+        'success': false,
+        'message': 'Terjadi kesalahan: $e',
+        'data': [],
+      };
+    }
+  }
+
   // Update Order Status (untuk Admin Stan) - PUT updatestatus/{id}
   static Future<Map<String, dynamic>> updateOrderStatus({
     required String token,
     required int orderId,
-    required String status, // belum dikonfirm, dimasak, diantar, sampai
+    required String status,
   }) async {
     try {
       print('🔵 Calling updatestatus/$orderId API...');

@@ -1,12 +1,14 @@
-// GANTI FILE: lib/pages/dashboard_siswa_page.dart
+// GANTI FILE: lib/pages/dashboard_siswa_page.dart (VERSI LENGKAP DENGAN RIWAYAT PESANAN)
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ukkkantin/pages/riwayat_pesanan_page.dart';
 import 'package:ukkkantin/services/api.dart';
 import 'package:ukkkantin/services/cart_service.dart';
 
 import 'welcome_page.dart';
 import 'keranjang_page.dart';
+import 'riwayat_pesanan_page.dart'; 
 
 class DashboardSiswaPage extends StatefulWidget {
   const DashboardSiswaPage({Key? key}) : super(key: key);
@@ -48,7 +50,6 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
     setState(() => _isLoading = true);
 
     try {
-      // Panggil kedua endpoint secara paralel untuk performa lebih baik
       final results = await Future.wait([
         ApiService.getMenuFood(token: _token!, search: ''),
         ApiService.getMenuDrink(token: _token!, search: ''),
@@ -60,7 +61,6 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
       print('🔍 Food Result: $foodResult');
       print('🔍 Drink Result: $drinkResult');
 
-      // Cek jika unauthorized (token expired)
       if (foodResult['success'] == false && 
           foodResult['message']?.toString().contains('Token') == true) {
         if (!mounted) return;
@@ -81,7 +81,6 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
       List<dynamic> foodList = [];
       List<dynamic> drinkList = [];
 
-      // Parse food response
       if (foodResult['data'] != null && foodResult['data'] is List) {
         foodList = foodResult['data'];
       } else if (foodResult['pesan'] != null && foodResult['pesan'] is List) {
@@ -90,7 +89,6 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
         foodList = foodResult as List<dynamic>;
       }
 
-      // Parse drink response
       if (drinkResult['data'] != null && drinkResult['data'] is List) {
         drinkList = drinkResult['data'];
       } else if (drinkResult['pesan'] != null && drinkResult['pesan'] is List) {
@@ -106,7 +104,6 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
       });
 
       print('✅ Loaded ${_makananList.length} makanan, ${_minumanList.length} minuman');
-      print('📋 Total Menu: ${_menuList.length} items');
     } catch (e) {
       print('❌ Error loading menu: $e');
       setState(() {
@@ -156,8 +153,21 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
       appBar: AppBar(
         title: const Text('Dashboard Siswa'),
         backgroundColor: const Color(0xFFF4511E),
-        automaticallyImplyLeading: false, // Hapus tombol back
+        automaticallyImplyLeading: false,
         actions: [
+          // TOMBOL RIWAYAT PESANAN - BARU!
+          IconButton(
+            icon: const Icon(Icons.receipt_long),
+            tooltip: 'Riwayat Pesanan',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const RiwayatPesananSiswaPage(),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadMenu,
@@ -207,6 +217,46 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Menu Shortcuts - BARU!
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildMenuButton(
+                      icon: Icons.receipt_long,
+                      label: 'Riwayat\nPesanan',
+                      color: Colors.blue,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const RiwayatPesananSiswaPage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMenuButton(
+                      icon: Icons.shopping_cart,
+                      label: 'Keranjang\nBelanja',
+                      color: const Color(0xFFF4511E),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const KeranjangPage(),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ],
@@ -292,6 +342,44 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
     );
   }
 
+  // WIDGET BARU untuk menu button
+  Widget _buildMenuButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 32, color: color),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCategoryChip(String category) {
     final isSelected = _selectedCategory == category;
     return InkWell(
@@ -326,7 +414,6 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Image
           Expanded(
             flex: 3,
             child: Container(
@@ -362,7 +449,6 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
             ),
           ),
           
-          // Details
           Expanded(
             flex: 2,
             child: Padding(
@@ -408,10 +494,6 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
                       ),
                       InkWell(
                         onTap: () {
-                          // Debug: cek struktur menu
-                          print('🍔 Menu Data: $menu');
-                          
-                          // Pastikan menu punya id_menu
                           final menuData = {
                             'id_menu': menu['id_menu'] ?? menu['id'] ?? 0,
                             'nama_makanan': menu['nama_makanan'] ?? 'Menu',
@@ -421,10 +503,8 @@ class _DashboardSiswaPageState extends State<DashboardSiswaPage> {
                             'id_stan': menu['id_stan'] ?? 1,
                           };
                           
-                          print('📦 Adding to cart: $menuData');
-                          
                           _cartService.addToCart(menuData);
-                          setState(() {}); // Update badge count
+                          setState(() {});
                           
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(

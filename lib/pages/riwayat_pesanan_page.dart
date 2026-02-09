@@ -1,20 +1,24 @@
-// GANTI FILE: lib/pages/pesanan_page.dart
+// GANTI SELURUH ISI FILE: lib/pages/riwayat_pesanan_siswa_page.dart
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:ukkkantin/services/api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api.dart';
 
-class PesananPage extends StatefulWidget {
-  final String token;
-  const PesananPage({Key? key, required this.token}) : super(key: key);
+class RiwayatPesananSiswaPage extends StatefulWidget {
+  const RiwayatPesananSiswaPage({Key? key}) : super(key: key);
 
   @override
-  State<PesananPage> createState() => _PesananPageState();
+  State<RiwayatPesananSiswaPage> createState() => _RiwayatPesananSiswaPageState();
 }
 
-class _PesananPageState extends State<PesananPage> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _RiwayatPesananSiswaPageState extends State<RiwayatPesananSiswaPage> 
+    with SingleTickerProviderStateMixin {
   
+  late TabController _tabController;
+  String? _token;
+  
+  List<dynamic> _semuaPesanan = [];
   List<dynamic> _belumDikonfirmList = [];
   List<dynamic> _dimasakList = [];
   List<dynamic> _diantarList = [];
@@ -25,8 +29,8 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _loadOrders();
+    _tabController = TabController(length: 5, vsync: this);
+    _loadToken();
   }
 
   @override
@@ -35,18 +39,32 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
     super.dispose();
   }
 
+  Future<void> _loadToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _token = prefs.getString('access_token');
+    });
+    
+    if (_token != null) {
+      _loadOrders();
+    }
+  }
+
   Future<void> _loadOrders() async {
+    if (_token == null) return;
+    
     setState(() => _isLoading = true);
 
     try {
+      // PENTING: Gunakan showOrder untuk SISWA
       final results = await Future.wait([
-        ApiService.getOrderByStatus(token: widget.token, status: 'belum dikonfirm'),
-        ApiService.getOrderByStatus(token: widget.token, status: 'dimasak'),
-        ApiService.getOrderByStatus(token: widget.token, status: 'diantar'),
-        ApiService.getOrderByStatus(token: widget.token, status: 'sampai'),
+        ApiService.showOrder(token: _token!, status: 'belum dikonfirm'),
+        ApiService.showOrder(token: _token!, status: 'dimasak'),
+        ApiService.showOrder(token: _token!, status: 'diantar'),
+        ApiService.showOrder(token: _token!, status: 'sampai'),
       ]);
 
-      print('🔍 Raw API Results:');
+      print('🔍 Raw API Results (Siswa - showOrder):');
       print('Belum Dikonfirm: ${results[0]}');
       print('Dimasak: ${results[1]}');
       print('Diantar: ${results[2]}');
@@ -57,9 +75,17 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
         _dimasakList = _parseOrderData(results[1]);
         _diantarList = _parseOrderData(results[2]);
         _sampaiList = _parseOrderData(results[3]);
+        
+        _semuaPesanan = [
+          ..._belumDikonfirmList,
+          ..._dimasakList,
+          ..._diantarList,
+          ..._sampaiList,
+        ];
       });
 
-      print('✅ Parsed orders:');
+      print('✅ Loaded orders (Siswa):');
+      print('Total: ${_semuaPesanan.length}');
       print('Belum Dikonfirm: ${_belumDikonfirmList.length}');
       print('Dimasak: ${_dimasakList.length}');
       print('Diantar: ${_diantarList.length}');
@@ -67,45 +93,43 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
       
     } catch (e) {
       print('❌ Error loading orders: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memuat riwayat pesanan: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
   List<dynamic> _parseOrderData(dynamic result) {
-    print('🔍 Parsing data: $result');
-    
     if (result is Map<String, dynamic>) {
-      // Coba berbagai kemungkinan key
       final possibleKeys = ['data', 'pesan', 'pesanan', 'orders', 'order'];
       
       for (var key in possibleKeys) {
         if (result[key] != null && result[key] is List) {
-          print('✅ Found data in key: $key');
           return result[key];
         }
       }
-      
-      print('⚠️ No matching key found in response');
       return [];
     } else if (result is List) {
-      print('✅ Result is already a list');
       return result;
     }
-    
-    print('⚠️ Unknown data format');
     return [];
   }
 
   dynamic _extractPesanan(dynamic order) {
-    var pesanan = order['detail_trans'] ??  // Tambahkan ini untuk detail transaksi
+    var pesanan = order['detail_trans'] ?? 
                   order['pesanan'] ?? 
                   order['pesan'] ?? 
                   order['items'] ?? 
                   order['detail'] ?? 
                   order['detail_pesanan'];
     
-    // Jika pesanan adalah string JSON, parse dulu
     if (pesanan is String) {
       try {
         pesanan = jsonDecode(pesanan);
@@ -118,133 +142,22 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
     return pesanan ?? [];
   }
 
-  Future<void> _updateStatus(int orderId, String newStatus) async {
-    try {
-      print('📤 Updating order #$orderId to status: $newStatus');
-      
-      final result = await ApiService.updateOrderStatus(
-        token: widget.token,
-        orderId: orderId,
-        status: newStatus,
-      );
-
-      print('📦 Update result: $result');
-
-      if (!mounted) return;
-
-      if (result['success'] == true || 
-          result['message']?.toString().toLowerCase().contains('berhasil') == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Status pesanan berhasil diupdate!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        _loadOrders(); // Reload data
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'Gagal update status'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      print('❌ Error updating status: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _showUpdateStatusDialog(dynamic order) {
-    print('📋 Order data for dialog: $order');
-    
-    final orderId = order['id_pesan'] ?? 
-                    order['id'] ?? 
-                    order['order_id'] ?? 
-                    order['id_order'] ?? 0;
-    
-    final currentStatus = order['status'] ?? 'belum dikonfirm';
-
-    print('🔍 Order ID: $orderId, Status: $currentStatus');
-
-    if (orderId == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Error: ID pesanan tidak ditemukan'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    // Tentukan status berikutnya
-    String nextStatus;
-    String actionText;
-    
-    switch (currentStatus) {
-      case 'belum dikonfirm':
-        nextStatus = 'dimasak';
-        actionText = 'Konfirmasi & Masak';
-        break;
-      case 'dimasak':
-        nextStatus = 'diantar';
-        actionText = 'Antarkan';
-        break;
-      case 'diantar':
-        nextStatus = 'sampai';
-        actionText = 'Tandai Sampai';
-        break;
-      default:
-        return; // Sudah sampai, tidak ada aksi
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Update Status'),
-        content: Text('Ubah status pesanan #$orderId menjadi "$nextStatus"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _updateStatus(orderId, nextStatus);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFF4511E),
-            ),
-            child: Text(actionText),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pesanan Masuk'),
+        title: const Text('Riwayat Pesanan'),
         backgroundColor: const Color(0xFFF4511E),
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
           indicatorColor: Colors.white,
           tabs: [
+            Tab(text: 'Semua (${_semuaPesanan.length})'),
             Tab(
               child: Row(
                 children: [
-                  const Text('Baru'),
+                  const Text('Menunggu'),
                   if (_belumDikonfirmList.isNotEmpty)
                     Container(
                       margin: const EdgeInsets.only(left: 8),
@@ -278,23 +191,24 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
           : TabBarView(
               controller: _tabController,
               children: [
-                _buildOrderList(_belumDikonfirmList, 'belum dikonfirm'),
-                _buildOrderList(_dimasakList, 'dimasak'),
-                _buildOrderList(_diantarList, 'diantar'),
-                _buildOrderList(_sampaiList, 'sampai'),
+                _buildOrderList(_semuaPesanan, showStatus: true),
+                _buildOrderList(_belumDikonfirmList, status: 'belum dikonfirm'),
+                _buildOrderList(_dimasakList, status: 'dimasak'),
+                _buildOrderList(_diantarList, status: 'diantar'),
+                _buildOrderList(_sampaiList, status: 'sampai'),
               ],
             ),
     );
   }
 
-  Widget _buildOrderList(List<dynamic> orders, String status) {
+  Widget _buildOrderList(List<dynamic> orders, {String? status, bool showStatus = false}) {
     if (orders.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.inbox,
+              Icons.receipt_long,
               size: 80,
               color: Colors.grey[400],
             ),
@@ -311,6 +225,9 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
               onPressed: _loadOrders,
               icon: const Icon(Icons.refresh),
               label: const Text('Muat Ulang'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF4511E),
+              ),
             ),
           ],
         ),
@@ -324,37 +241,30 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
         itemCount: orders.length,
         itemBuilder: (context, index) {
           final order = orders[index];
-          return _buildOrderCard(order, status);
+          final orderStatus = status ?? (order['status'] ?? 'belum dikonfirm');
+          return _buildOrderCard(order, orderStatus, showStatus: showStatus);
         },
       ),
     );
   }
 
-  Widget _buildOrderCard(dynamic order, String status) {
-    print('🎴 Building card for order: $order');
-    
+  Widget _buildOrderCard(dynamic order, String status, {bool showStatus = false}) {
     final orderId = order['id_pesan'] ?? 
                     order['id'] ?? 
                     order['order_id'] ?? 
                     order['id_order'] ?? 0;
     
-    final namaSiswa = order['nama_siswa'] ?? 
-                      order['siswa'] ?? 
-                      order['nama'] ?? 
-                      order['customer'] ?? 
-                      'Siswa';
+    final namaStan = order['nama_stan'] ?? 
+                     order['stan'] ?? 
+                     'Stan Kantin';
     
     final tanggal = order['tanggal'] ?? 
                     order['created_at'] ?? 
                     order['date'] ?? 
                     '';
     
-    // Extract pesanan (format bisa: detail_trans atau pesan)
     var pesanan = _extractPesanan(order);
     
-    print('📦 Order #$orderId - Raw Items: $pesanan');
-    
-    // Tampilkan item dengan id_menu dan qty saja
     List<Widget> itemWidgets = [];
     int calculatedTotal = 0;
     
@@ -364,7 +274,6 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
         final qtyValue = item['qty'] ?? 1;
         final hargaBeli = item['harga_beli'] ?? item['harga'] ?? 0;
         
-        // Pastikan qty adalah int
         int qty = 1;
         if (qtyValue is int) {
           qty = qtyValue;
@@ -372,7 +281,6 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
           qty = int.tryParse(qtyValue) ?? 1;
         }
         
-        // Hitung total dari harga_beli * qty
         int itemHarga = 0;
         if (hargaBeli is int) {
           itemHarga = hargaBeli;
@@ -384,30 +292,24 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
         
         itemWidgets.add(
           Padding(
-            padding: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.only(bottom: 6),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
+                Expanded(
                   child: Text(
-                    'ID: $idMenu',
+                    'Menu ID: $idMenu',
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+                      fontSize: 13,
+                      color: Colors.black87,
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
                 Text(
-                  'Qty: $qty',
+                  '$qty x Rp $itemHarga',
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 13,
+                    color: Colors.black54,
                   ),
                 ),
               ],
@@ -417,7 +319,6 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
       }
     }
     
-    // Ambil total dari API jika ada, atau gunakan calculated total
     int total = 0;
     final totalValue = order['total'] ?? 
                       order['total_harga'] ?? 
@@ -430,41 +331,52 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
       total = totalValue;
     }
     
-    // Jika total dari API = 0, gunakan calculated total
     if (total == 0 && calculatedTotal > 0) {
       total = calculatedTotal;
     }
 
-    print('💰 Total: Rp $total (API: $totalValue, Calculated: $calculatedTotal)');
-
-    // Status color
     Color statusColor;
+    IconData statusIcon;
+    String statusText;
+    
     switch (status) {
       case 'belum dikonfirm':
         statusColor = Colors.orange;
+        statusIcon = Icons.hourglass_empty;
+        statusText = 'Menunggu Konfirmasi';
         break;
       case 'dimasak':
         statusColor = Colors.blue;
+        statusIcon = Icons.restaurant;
+        statusText = 'Sedang Dimasak';
         break;
       case 'diantar':
         statusColor = Colors.purple;
+        statusIcon = Icons.delivery_dining;
+        statusText = 'Sedang Diantar';
         break;
       case 'sampai':
         statusColor = Colors.green;
+        statusIcon = Icons.check_circle;
+        statusText = 'Selesai';
         break;
       default:
         statusColor = Colors.grey;
+        statusIcon = Icons.info;
+        statusText = status;
     }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -472,62 +384,134 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                        horizontal: 10,
+                        vertical: 5,
                       ),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         '#$orderId',
-                        style: TextStyle(
-                          color: statusColor,
+                        style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      tanggal,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
+                    if (showStatus) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(statusIcon, size: 14, color: statusColor),
+                            const SizedBox(width: 4),
+                            Text(
+                              statusText,
+                              style: TextStyle(
+                                color: statusColor,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
+                ),
+                Text(
+                  tanggal,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
 
-            // Customer Info
             Row(
               children: [
-                const Icon(Icons.person, size: 16, color: Colors.grey),
+                Icon(Icons.store, size: 16, color: Colors.grey[700]),
                 const SizedBox(width: 8),
                 Text(
-                  namaSiswa,
+                  namaStan,
                   style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
-            const Divider(height: 24),
+            
+            const Divider(height: 20),
 
-            // Items
+            if (!showStatus)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: statusColor.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(statusIcon, size: 20, color: statusColor),
+                    const SizedBox(width: 12),
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            
+            if (!showStatus) const SizedBox(height: 12),
+
             if (itemWidgets.isNotEmpty)
-              ...itemWidgets
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Detail Pesanan:',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...itemWidgets,
+                  ],
+                ),
+              )
             else
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Text(
                   'Detail pesanan tidak tersedia',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: Colors.grey[600],
                     fontStyle: FontStyle.italic,
                   ),
@@ -536,49 +520,24 @@ class _PesananPageState extends State<PesananPage> with SingleTickerProviderStat
 
             const Divider(height: 24),
 
-            // Total & Action
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Total',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    Text(
-                      'Rp $total',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFFF4511E),
-                      ),
-                    ),
-                  ],
-                ),
-                if (status != 'sampai')
-                  ElevatedButton(
-                    onPressed: () => _showUpdateStatusDialog(order),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: statusColor,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                    ),
-                    child: Text(
-                      status == 'belum dikonfirm'
-                          ? 'Konfirmasi'
-                          : status == 'dimasak'
-                              ? 'Antarkan'
-                              : 'Selesai',
-                      style: const TextStyle(color: Colors.white),
-                    ),
+                const Text(
+                  'Total Pembayaran',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
                   ),
+                ),
+                Text(
+                  'Rp $total',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF4511E),
+                  ),
+                ),
               ],
             ),
           ],

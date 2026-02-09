@@ -1,4 +1,4 @@
-// BUAT FILE BARU: lib/pages/keranjang_page.dart
+// GANTI SELURUH ISI FILE: lib/pages/keranjang_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -70,28 +70,69 @@ class _KeranjangPageState extends State<KeranjangPage> {
       return;
     }
 
+    // Tampilkan dialog konfirmasi
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Konfirmasi Pesanan'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Total Item: ${_cartService.totalItems}'),
+            const SizedBox(height: 8),
+            Text(
+              'Total Harga: Rp ${_cartService.getTotalPrice()}',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Lanjutkan checkout?'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF4511E),
+            ),
+            child: const Text('Ya, Pesan'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
     setState(() => _isLoading = true);
 
     try {
-      // Ambil id_stan dari item pertama (asumsi semua item dari stan yang sama)
-      final idStan = _cartService.items[0]['id_stan'] ?? 1;
+      // Ambil id_stan dari cart service
+      final idStan = _cartService.getIdStan();
+      
+      if (idStan == null) {
+        throw Exception('ID Stan tidak ditemukan');
+      }
 
-      // Format pesanan
-      final pesan = _cartService.items.map((item) {
-        return {
-          'id_menu': item['id_menu'],
-          'qty': item['qty'],
-        };
-      }).toList();
+      // Dapatkan pesanan dalam format List
+      final pesanList = _cartService.getPesananForAPI();
 
       print('🛒 Checkout Data:');
       print('ID Stan: $idStan');
-      print('Pesan: $pesan');
+      print('Pesan List: $pesanList');
+      print('Total Items: ${_cartService.totalItems}');
+      print('Total Price: Rp ${_cartService.getTotalPrice()}');
 
       final result = await ApiService.createOrder(
         token: _token!,
         idStan: idStan,
-        pesan: pesan,
+        pesan: pesanList,
       );
 
       if (!mounted) return;
@@ -101,24 +142,46 @@ class _KeranjangPageState extends State<KeranjangPage> {
       if (result['success'] == true || 
           result['message']?.toString().toLowerCase().contains('berhasil') == true) {
         
+        // Clear cart
         setState(() {
           _cartService.clear();
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pesanan berhasil dibuat!'),
-            backgroundColor: Colors.green,
+        // Tampilkan success dialog
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: Row(
+              children: const [
+                Icon(Icons.check_circle, color: Colors.green, size: 28),
+                SizedBox(width: 12),
+                Text('Pesanan Berhasil!'),
+              ],
+            ),
+            content: const Text(
+              'Pesanan Anda telah diterima. Silakan tunggu konfirmasi dari stan.',
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context); // Close dialog
+                  Navigator.pop(context); // Back to dashboard
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF4511E),
+                ),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
-
-        // Kembali ke dashboard
-        Navigator.pop(context);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result['message'] ?? 'Gagal membuat pesanan'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -129,6 +192,7 @@ class _KeranjangPageState extends State<KeranjangPage> {
           SnackBar(
             content: Text('Error: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -143,10 +207,11 @@ class _KeranjangPageState extends State<KeranjangPage> {
   Widget build(BuildContext context) {
     final cartItems = _cartService.items;
     final totalPrice = _cartService.getTotalPrice();
+    final totalItems = _cartService.totalItems;
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Keranjang'),
+        title: Text('Keranjang (${cartItems.length})'),
         backgroundColor: const Color(0xFFF4511E),
       ),
       body: cartItems.isEmpty
@@ -181,13 +246,72 @@ class _KeranjangPageState extends State<KeranjangPage> {
             )
           : Column(
               children: [
+                // Summary Card
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4511E).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFFF4511E).withOpacity(0.3),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Total Item',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          Text(
+                            '$totalItems item',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Text(
+                            'Total Harga',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          Text(
+                            'Rp $totalPrice',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFF4511E),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
                 // Cart Items
                 Expanded(
                   child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: cartItems.length,
                     itemBuilder: (context, index) {
                       final item = cartItems[index];
+                      final itemTotal = (item['harga'] as int) * (item['qty'] as int);
+                      
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
                         child: Padding(
@@ -236,10 +360,20 @@ class _KeranjangPageState extends State<KeranjangPage> {
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
                                       ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Rp ${item['harga']}',
+                                      'Rp ${item['harga']} x ${item['qty']}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Subtotal: Rp $itemTotal',
                                       style: const TextStyle(
                                         fontSize: 14,
                                         color: Color(0xFFF4511E),
@@ -336,17 +470,30 @@ class _KeranjangPageState extends State<KeranjangPage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Total:',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$totalItems Item',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Total Bayar:',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                           Text(
                             'Rp $totalPrice',
                             style: const TextStyle(
-                              fontSize: 20,
+                              fontSize: 22,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFFF4511E),
                             ),
@@ -366,9 +513,16 @@ class _KeranjangPageState extends State<KeranjangPage> {
                             ),
                           ),
                           child: _isLoading
-                              ? const CircularProgressIndicator(color: Colors.white)
+                              ? const SizedBox(
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
                               : const Text(
-                                  'Checkout',
+                                  'Checkout Sekarang',
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
